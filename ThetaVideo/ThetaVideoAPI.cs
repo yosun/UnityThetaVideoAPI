@@ -9,10 +9,10 @@ using System.IO;
  * 
  * Simple class to upload to ThetaVideo API
  * 
- * Call PostVideo(string filename) with the locally stored video you want to upload
- * 
- * subscribe a delegate for progress returned to VideoProgressInt - returns 0 when uploaded;
- * Call CheckProgress with videoid to check progress
+ * 1) Call PostVideo(string filename) with the locally stored video you want to upload
+   2) (Optional) Subscribe a delegate for progress returned to VideoProgressInt - returns 0 when uploaded;
+   3) Call CheckProgress (with optional videoid if not the last uploaded/transcode requested video) 
+ *    Upon completion: populates playback_uri and player_url in dicURLs[uploadid]
  * 
  */
 namespace ThetaVideoAPIUnity
@@ -28,9 +28,11 @@ namespace ThetaVideoAPIUnity
 
         List<string> filePaths = new List<string>();
         // primary key is url and then uploadid
-        Dictionary<string, VideoConnectorData> dicURLs = new Dictionary<string, VideoConnectorData>();
+        public Dictionary<string, VideoConnectorData> dicURLs = new Dictionary<string, VideoConnectorData>();
 
         public VOIDINT VideoProgressInt;
+
+        public string lastVideoID;
 
         private void Awake()
         {
@@ -45,6 +47,10 @@ namespace ThetaVideoAPIUnity
 
             POST_SignedURL();
              
+        }
+        public void CheckProgress()
+        {
+            CheckProgress(lastVideoID);
         }
         public void CheckProgress(string videoid)
         {
@@ -92,9 +98,7 @@ namespace ThetaVideoAPIUnity
         void GotVideoBlank(string url)
         { 
             if (string.IsNullOrEmpty(url))
-            {
-                VideoProgressInt?.Invoke(0);
-
+            { 
                 // transcode it
                 POST_Transcode(dicURLs[url].uploadid);
 
@@ -119,8 +123,12 @@ namespace ThetaVideoAPIUnity
             Video_ResponseVideo v = JsonConvert.DeserializeObject<Video_ResponseVideo>(json);
             string uploadid = v.body.videos[0].source_upload_id;
             string videoid = v.body.videos[0].id;
+
             // update our dictionary
+            lastVideoID = videoid;
             dicURLs[uploadid].videoid = videoid;
+
+            VideoProgressInt?.Invoke(0);
         }
 
         // Step 4 - called asynchronously GET progress from video_id
@@ -130,16 +138,19 @@ namespace ThetaVideoAPIUnity
             wh.Get(url, ProgressReturned); 
         } 
         protected void GET_ProgressInt(string videoid)
-        {
-            string url = "https://api.thetavideoapi.com/video/" + videoid;
-
-            wh.Get(url, ManagedReturned);
+        { 
+            GET_Progress(videoid, ManagedReturned);
         }
 
         void ManagedReturned(string json)
         {
             Video_Response_Video v = JsonConvert.DeserializeObject<Video_Response_Video>(json);
+
+            if (!string.IsNullOrEmpty(v.playback_uri)) dicURLs[v.source_upload_id].playback_uri = v.playback_uri;
+            if (!string.IsNullOrEmpty(v.player_uri)) dicURLs[v.source_upload_id].player_uri = v.player_uri;
+
             VideoProgressInt?.Invoke(v.progress);
+
         }
 
     }
